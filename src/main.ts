@@ -7,8 +7,6 @@ import { swaggerConfig } from './config/swagger.config';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
-import { PrismaService } from './prisma/prisma.service';
-import { setupAdminJS } from './admin/adminjs.setup';
 
 // Fix BigInt serialization for JSON.stringify
 (BigInt.prototype as any).toJSON = function () {
@@ -53,10 +51,6 @@ async function bootstrap() {
     new TransformInterceptor(),
   );
 
-  // Setup AdminJS
-  const prismaService = app.get(PrismaService);
-  await setupAdminJS(app, prismaService);
-
   // Swagger documentation
   const document = SwaggerModule.createDocument(app, swaggerConfig);
   SwaggerModule.setup('api/docs', app, document, {
@@ -74,7 +68,6 @@ async function bootstrap() {
   Local:      http://localhost:${port}
   API:        http://localhost:${port}/${apiPrefix}
   Swagger:    http://localhost:${port}/api/docs
-  AdminJS:    http://localhost:${port}/admin
   ====================================
   `);
 }
