@@ -4,7 +4,10 @@
       "Bash(npx tsc:*)",
       "Bash(npx prisma generate)",
       "Bash(npm run build:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Bash(git push:*)",
+      "Bash(del nul:*)",
+      "Bash(npm run prisma:generate:*)"
     ]
   }
 }

@@ -3,11 +3,13 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditService } from '../audit/audit.service';
+import { AuditAction } from '../audit/audit.types';
 import {
   TableInfoDto,
   TableConfigDto,
@@ -152,14 +154,35 @@ export class TablesService {
 
     // Apply search across searchable fields
     if (search) {
-      const searchableFields = model.fields
+      const stringFields = model.fields
         .filter((f: any) => f.type === 'String' && !f.relationName)
         .map((f: any) => f.name);
 
-      if (searchableFields.length > 0) {
-        where.OR = searchableFields.map((field: string) => ({
+      const numericFields = model.fields
+        .filter((f: any) => (f.type === 'Int' || f.type === 'BigInt') && !f.relationName)
+        .map((f: any) => ({ name: f.name, type: f.type }));
+
+      const orConditions: any[] = [];
+
+      // Add string field searches (contains)
+      stringFields.forEach((field: string) => {
+        orConditions.push({
           [field]: { contains: search, mode: 'insensitive' },
-        }));
+        });
+      });
+
+      // Add numeric field searches (exact match if search is a number)
+      const searchNum = parseInt(search, 10);
+      if (!isNaN(searchNum)) {
+        numericFields.forEach((field: { name: string; type: string }) => {
+          orConditions.push({
+            [field.name]: field.type === 'BigInt' ? BigInt(searchNum) : searchNum,
+          });
+        });
+      }
+
+      if (orConditions.length > 0) {
+        where.OR = orConditions;
       }
     }
 
@@ -309,8 +332,8 @@ export class TablesService {
 
       await this.auditService.log({
         userId,
-        action: `CREATE_${tableName.toUpperCase()}` as any,
-        resource: resourceId,
+        action: AuditAction.CREATE_RECORD,
+        resource: String(resourceId),
         details: { table: tableName },
       });
 
@@ -325,6 +348,12 @@ export class TablesService {
         throw new ConflictException(
           `${fieldValues} for ${fieldNames} already exists`
         );
+      }
+      // Handle validation errors
+      if (error.name === 'PrismaClientValidationError') {
+        const message = error.message;
+        const lastLine = message.split('\n').filter((line: string) => line.trim()).pop() || 'Invalid data provided';
+        throw new BadRequestException(lastLine.trim());
       }
       throw error;
     }
@@ -367,20 +396,39 @@ export class TablesService {
     pkFields.forEach((pk) => delete data[pk]);
     delete data.created_at;
 
-    const row = await modelDelegate.update({
-      where: whereClause,
-      data,
-    });
+    try {
+      const row = await modelDelegate.update({
+        where: whereClause,
+        data,
+      });
 
-    // Log the action
-    await this.auditService.log({
-      userId,
-      action: `UPDATE_${tableName.toUpperCase()}` as any,
-      resource: id,
-      details: { table: tableName },
-    });
+      // Log the action
+      await this.auditService.log({
+        userId,
+        action: AuditAction.UPDATE_RECORD,
+        resource: id,
+        details: { table: tableName },
+      });
 
-    return row;
+      return row;
+    } catch (error: any) {
+      // Handle unique constraint violation
+      if (error.code === 'P2002') {
+        const fields = error.meta?.target || [];
+        const fieldNames = fields.join(', ');
+        const fieldValues = fields.map((f: string) => data[f]).join(', ');
+        throw new ConflictException(
+          `${fieldValues} for ${fieldNames} already exists`
+        );
+      }
+      // Handle validation errors
+      if (error.name === 'PrismaClientValidationError') {
+        const message = error.message;
+        const lastLine = message.split('\n').filter((line: string) => line.trim()).pop() || 'Invalid data provided';
+        throw new BadRequestException(lastLine.trim());
+      }
+      throw error;
+    }
   }
 
   /**
@@ -416,7 +464,7 @@ export class TablesService {
     // Log the action
     await this.auditService.log({
       userId,
-      action: `DELETE_${tableName.toUpperCase()}` as any,
+      action: AuditAction.DELETE_RECORD,
       resource: id,
       details: { table: tableName },
     });
@@ -506,7 +554,9 @@ export class TablesService {
     if (fieldName === 'email') return 'email';
     if (fieldName === 'id') return 'uuid';
     if (fieldName === 'role' || fieldName === 'action') return 'select';
-    if (fieldName === 'lab_id' || fieldName === 'practice_id' || fieldName === 'incisive_product_id') return 'select';
+    // These fields use external APIs for options (/labs/ids, /practices/ids, /products/ids)
+    // Frontend should fetch options separately
+    // if (fieldName === 'lab_id' || fieldName === 'practice_id' || fieldName === 'incisive_product_id') return 'select';
 
     const typeMap: Record<string, any> = {
       String: 'text',
@@ -566,13 +616,13 @@ export class TablesService {
       };
     }
 
-    // USER role - limited access
+    // USER role - can read, create, update, and delete
     if (userRole === 'USER') {
       return {
         read: true,
-        create: false,
-        update: false,
-        delete: false,
+        create: tableName !== 'audit_logs',
+        update: tableName !== 'audit_logs',
+        delete: tableName !== 'audit_logs',
         actions: [],
       };
     }
@@ -619,8 +669,8 @@ export class TablesService {
       throw new ForbiddenException(`Access denied to table '${tableName}'`);
     }
 
-    // Check specific action permission
-    if (action !== 'read' && userRole !== 'ADMIN') {
+    // VIEWER role can only read
+    if (action !== 'read' && userRole === 'VIEWER') {
       throw new ForbiddenException(`You don't have permission to ${action} in this table`);
     }
 

@@ -17,6 +17,7 @@ import { TablesModule } from './tables/tables.module';
 import { LabsModule } from './labs/labs.module';
 import { PracticesModule } from './practices/practices.module';
 import { ProductsModule } from './products/products.module';
+import { DentalGroupsModule } from './dental-groups/dental-groups.module';
 
 // Guards
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
@@ -55,6 +56,7 @@ import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
     LabsModule,
     PracticesModule,
     ProductsModule,
+    DentalGroupsModule,
   ],
   providers: [
     // Global JWT Auth Guard - all routes require auth by default

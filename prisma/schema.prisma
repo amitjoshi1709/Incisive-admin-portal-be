@@ -6,7 +6,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  schemas  = ["etl", "public"]
+  schemas  = ["public"]
 }
 
 model audit_logs {
@@ -23,7 +23,7 @@ model audit_logs {
   @@index([action], map: "idx_audit_logs_action")
   @@index([created_at], map: "idx_audit_logs_created_at")
   @@index([user_id], map: "idx_audit_logs_user_id")
-  @@schema("etl")
+  @@schema("public")
 }
 
 model dental_groups {
@@ -43,37 +43,38 @@ model dental_groups {
   sales_channel        String?
   sales_rep            String?
 
-  @@schema("etl")
+  @@schema("public")
 }
 
 model dental_practices {
   practice_id              BigInt                 @id
   dental_group_id          BigInt?
-  dental_group_name        String?                @db.VarChar(255)
+  dental_group_name        String?
   address                  String?
   address_2                String?
-  city                     String?                @db.VarChar(100)
-  state                    String?                @db.VarChar(50)
-  zip                      String?                @db.VarChar(20)
-  phone                    String?                @db.VarChar(30)
-  clinical_email           String?                @db.VarChar(255)
-  billing_email            String?                @db.VarChar(255)
-  incisive_email           String?                @db.VarChar(255)
-  preferred_contact_method String?                @db.VarChar(50)
-  fee_schedule             String?                @db.VarChar(100)
-  status                   String?                @db.VarChar(50)
+  city                     String?
+  state                    String?
+  zip                      String?
+  phone                    String?
+  clinical_email           String?
+  billing_email            String?
+  incisive_email           String?
+  preferred_contact_method String?
+  fee_schedule             String?
+  status                   String?
+  is_active                Boolean?               @default(true)
   created_at               DateTime?              @default(now()) @db.Timestamp(6)
   updated_at               DateTime?              @default(now()) @db.Timestamp(6)
   lab_practice_mapping     lab_practice_mapping[]
 
-  @@schema("etl")
+  @@schema("public")
 }
 
 model fee_schedules {
   schedule_name         String                  @id
   product_lab_rev_share product_lab_rev_share[]
 
-  @@schema("etl")
+  @@schema("public")
 }
 
 model incisive_product_catalog {
@@ -85,11 +86,10 @@ model incisive_product_catalog {
   created_at            DateTime?               @default(now()) @db.Timestamp(6)
   updated_at            DateTime?               @default(now()) @db.Timestamp(6)
   lab_product_mapping   lab_product_mapping[]
-  orders_current        orders_current[]
   product_lab_markup    product_lab_markup[]
   product_lab_rev_share product_lab_rev_share[]
 
-  @@schema("etl")
+  @@schema("public")
 }
 
 model lab_practice_mapping {
@@ -100,11 +100,10 @@ model lab_practice_mapping {
   is_active               Boolean?         @default(true)
   created_at              DateTime?        @default(now()) @db.Timestamp(6)
   updated_at              DateTime?        @default(now()) @db.Timestamp(6)
-  labs                    public_labs      @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
+  labs                    labs             @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
   dental_practices        dental_practices @relation(fields: [practice_id], references: [practice_id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([lab_id, practice_id], map: "unique_lab_practice")
-  @@schema("etl")
+  @@schema("public")
 }
 
 model lab_product_mapping {
@@ -117,127 +116,26 @@ model lab_product_mapping {
   created_at               DateTime?                 @default(now()) @db.Timestamp(6)
   updated_at               DateTime?                 @default(now()) @db.Timestamp(6)
   incisive_product_catalog incisive_product_catalog? @relation(fields: [incisive_product_id], references: [incisive_id], onDelete: NoAction, onUpdate: NoAction)
-  labs                     etl_labs?                 @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
+  labs                     labs?                     @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
 
-  @@unique([lab_id, lab_product_id], map: "unique_lab_product")
-  @@schema("etl")
+  @@schema("public")
 }
 
 /// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model etl_labs {
-  lab_id              BigInt                @id @default(autoincrement())
-  lab_name            String
-  lab_sfdc_id         String?
-  partner_model       String?
-  is_active           Boolean?              @default(true)
-  created_at          DateTime?             @default(now()) @db.Timestamp(6)
-  updated_at          DateTime?             @default(now()) @db.Timestamp(6)
-  lab_product_mapping lab_product_mapping[]
+model labs {
+  lab_id                BigInt                  @id @default(autoincrement())
+  lab_name              String
+  lab_sfdc_id           String?
+  partner_model         String?
+  is_active             Boolean?                @default(true)
+  created_at            DateTime?               @default(now()) @db.Timestamp(6)
+  updated_at            DateTime?               @default(now()) @db.Timestamp(6)
+  lab_practice_mapping  lab_practice_mapping[]
+  lab_product_mapping   lab_product_mapping[]
+  product_lab_markup    product_lab_markup[]
+  product_lab_rev_share product_lab_rev_share[]
 
-  @@map("labs")
-  @@schema("etl")
-}
-
-model orders_current {
-  caseid                   BigInt
-  productid                String
-  submissiondate           String?
-  shippingdate             String?
-  casedate                 String?
-  productdescription       String?
-  quantity                 BigInt?
-  productprice             String?
-  patientname              String?
-  customerid               String?
-  customername             String?
-  address                  String?
-  phonenumber              String?
-  casestatus               String?
-  holdreason               String?
-  estimatecompletedate     String?
-  requestedreturndate      String?
-  trackingnumber           String?
-  estimatedshipdate        String?
-  holddate                 String?
-  deliverystatus           String?
-  notes                    String?
-  onhold                   String?
-  shade                    String?
-  mold                     String?
-  doctorpreferences        String?
-  productpreferences       String?
-  comments                 String?
-  casetotal                String?
-  lab_id                   BigInt?
-  incisive_product_id      Int?
-  row_hash                 String?
-  last_updated_at          DateTime?                 @default(now()) @db.Timestamp(6)
-  incisive_product_catalog incisive_product_catalog? @relation(fields: [incisive_product_id], references: [incisive_id], onDelete: NoAction, onUpdate: NoAction)
-
-  @@id([caseid, productid])
-  @@schema("etl")
-}
-
-model orders_history {
-  history_id      BigInt    @id @default(autoincrement())
-  caseid          BigInt?
-  productid       String?
-  lab_id          BigInt?
-  change_type     String?
-  changed_columns String[]
-  old_row         Json?
-  new_row         Json?
-  source_file_key String?
-  changed_at      DateTime? @default(now()) @db.Timestamp(6)
-
-  @@index([caseid, productid], map: "idx_orders_history_caseid_productid")
-  @@schema("etl")
-}
-
-/// The underlying table does not contain a valid unique identifier and can therefore currently not be handled by Prisma Client.
-model orders_stage {
-  submissiondate       String?
-  shippingdate         String?
-  casedate             String?
-  caseid               BigInt?
-  productid            String?
-  productdescription   String?
-  quantity             BigInt?
-  productprice         String?
-  patientname          String?
-  customerid           String?
-  customername         String?
-  address              String?
-  phonenumber          String?
-  casestatus           String?
-  holdreason           String?
-  estimatecompletedate String?
-  requestedreturndate  String?
-  trackingnumber       String?
-  estimatedshipdate    String?
-  holddate             String?
-  deliverystatus       String?
-  notes                String?
-  onhold               String?
-  shade                String?
-  mold                 String?
-  doctorpreferences    String?
-  productpreferences   String?
-  comments             String?
-  casetotal            String?
-  lab_id               BigInt?   @default(2)
-  source_file_key      String?
-  row_hash             String?
-  loaded_at            DateTime? @default(now()) @db.Timestamp(6)
-
-  @@ignore
-  @@schema("etl")
-}
-
-model patients {
-  patient_name String @id
-
-  @@schema("etl")
+  @@schema("public")
 }
 
 model product_lab_markup {
@@ -249,10 +147,10 @@ model product_lab_markup {
   nf_price                 Float?
   commitment_eligible      Boolean?
   incisive_product_catalog incisive_product_catalog? @relation(fields: [incisive_product_id], references: [incisive_id], onDelete: NoAction, onUpdate: NoAction)
-  labs                     public_labs               @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
+  labs                     labs                      @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
 
   @@id([lab_id, lab_product_id])
-  @@schema("etl")
+  @@schema("public")
 }
 
 model product_lab_rev_share {
@@ -264,11 +162,11 @@ model product_lab_rev_share {
   commitment_eligible      Boolean?
   fee_schedules            fee_schedules             @relation(fields: [fee_schedule_name], references: [schedule_name], onDelete: NoAction, onUpdate: NoAction)
   incisive_product_catalog incisive_product_catalog? @relation(fields: [incisive_product_id], references: [incisive_id], onDelete: NoAction, onUpdate: NoAction)
-  labs                     public_labs               @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
+  labs                     labs                      @relation(fields: [lab_id], references: [lab_id], onDelete: NoAction, onUpdate: NoAction)
 
   @@id([lab_id, lab_product_id, fee_schedule_name])
   @@unique([lab_id, lab_product_id, fee_schedule_name], map: "unique_lab_product_fee_schedule")
-  @@schema("etl")
+  @@schema("public")
 }
 
 model users {
@@ -284,23 +182,6 @@ model users {
   updated_at    DateTime?    @default(now()) @db.Timestamp(6)
   audit_logs    audit_logs[]
 
-  @@schema("etl")
-}
-
-/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
-model public_labs {
-  lab_id                BigInt                  @id @default(autoincrement())
-  lab_name              String
-  lab_sfdc_id           String?
-  partner_model         String?
-  is_active             Boolean?                @default(true)
-  created_at            DateTime?               @default(now()) @db.Timestamp(6)
-  updated_at            DateTime?               @default(now()) @db.Timestamp(6)
-  lab_practice_mapping  lab_practice_mapping[]
-  product_lab_markup    product_lab_markup[]
-  product_lab_rev_share product_lab_rev_share[]
-
-  @@map("labs")
   @@schema("public")
 }
 
@@ -310,8 +191,11 @@ enum AuditAction {
   CREATE_USER
   UPDATE_USER
   DELETE_USER
+  CREATE_RECORD
+  UPDATE_RECORD
+  DELETE_RECORD
 
-  @@schema("etl")
+  @@schema("public")
 }
 
 enum Role {
@@ -319,5 +203,5 @@ enum Role {
   USER
   VIEWER
 
-  @@schema("etl")
+  @@schema("public")
 }

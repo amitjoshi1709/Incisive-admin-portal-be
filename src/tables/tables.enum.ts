@@ -6,13 +6,13 @@
 export enum AllowedTable {
   // Core tables
   USERS = 'users',
-  AUDIT_LOGS = 'audit_logs',
   LAB_PRODUCT_MAAPING = 'lab_product_mapping',
   LAB_PRACTICE_MAAPING = 'lab_practice_mapping',
   INCISIVE_PRODUCT_CATALOG = 'incisive_product_catalog',
-  ORDERS_STAGE = 'orders_stage',
-  ORDERS_CURRENT = 'orders_current',
-  ORDERS_HISTORY = 'orders_history',
+  LABS='labs',
+  DENTAL_GROUPS='dental_groups',
+  DENTAL_PRACTICES='dental_practices',
+  FEE_SCHEDULE='fee_schedules',
 
   // Add more tables here as needed:
   // PRODUCTS = 'products',
@@ -27,7 +27,7 @@ export enum AllowedTable {
  */
 export const ADMIN_ONLY_TABLES: string[] = [
   AllowedTable.USERS,
-  AllowedTable.AUDIT_LOGS,
+  // AllowedTable.AUDIT_LOGS,
 ];
 
 /**

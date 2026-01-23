@@ -34,7 +34,7 @@ export class AuthService {
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // Create user
+    // Create user (is_active defaults to false - needs admin approval)
     const user = await this.prisma.users.create({
       data: {
         email,
@@ -42,6 +42,7 @@ export class AuthService {
         first_name: firstName,
         last_name: lastName,
         role: 'USER', // Default role
+        is_active: false, // Requires admin activation
       },
     });
 
