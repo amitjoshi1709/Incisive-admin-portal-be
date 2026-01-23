@@ -9,7 +9,7 @@ export class LabsService {
    * Get all lab IDs and names from the public labs table
    */
   async getLabIds(): Promise<{ labs: { lab_id: number; lab_name: string }[] }> {
-    const labs = await this.prisma.public_labs.findMany({
+    const labs = await this.prisma.labs.findMany({
       where: { is_active: true },
       select: { lab_id: true, lab_name: true },
       orderBy: { lab_id: 'asc' },

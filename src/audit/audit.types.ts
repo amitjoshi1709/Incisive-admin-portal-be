@@ -4,6 +4,9 @@ export enum AuditAction {
   CREATE_USER = 'CREATE_USER',
   UPDATE_USER = 'UPDATE_USER',
   DELETE_USER = 'DELETE_USER',
+  CREATE_RECORD = 'CREATE_RECORD',
+  UPDATE_RECORD = 'UPDATE_RECORD',
+  DELETE_RECORD = 'DELETE_RECORD',
 }
 
 export interface AuditLogEntry {
