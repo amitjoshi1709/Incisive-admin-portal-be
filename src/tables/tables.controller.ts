@@ -40,19 +40,6 @@ export class TablesController {
     return this.tablesService.getTables(userRole);
   }
 
-  @Get(':table')
-  @ApiOperation({ summary: 'Get table configuration with columns and permissions' })
-  @ApiParam({ name: 'table', description: 'Table name' })
-  @ApiResponse({ status: 200, description: 'Table configuration', type: TableConfigDto })
-  @ApiResponse({ status: 403, description: 'Access denied' })
-  @ApiResponse({ status: 404, description: 'Table not found' })
-  async getTableConfig(
-    @Param('table') tableName: string,
-    @CurrentUser('role') userRole: string,
-  ) {
-    return this.tablesService.getTableConfig(tableName, userRole);
-  }
-
   @Get(':table/rows')
   @ApiOperation({ summary: 'Get table rows with pagination, filtering, and sorting' })
   @ApiParam({ name: 'table', description: 'Table name' })
@@ -97,6 +84,42 @@ export class TablesController {
     return this.tablesService.createTableRow(tableName, data, userRole, userId);
   }
 
+  @Patch('product_lab_rev_share/rows')
+  @ApiOperation({ summary: 'Update product lab rev share record' })
+  @ApiResponse({ status: 200, description: 'Record updated successfully' })
+  @ApiResponse({ status: 400, description: 'Missing required fields' })
+  @ApiResponse({ status: 404, description: 'Record not found' })
+  async updateProductLabRevShare(
+    @Body() data: {
+      lab_id: number;
+      lab_product_id: string;
+      schedule_name: string;
+      incisive_product_id?: number | null;
+      revenue_share?: number;
+    },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.tablesService.updateProductLabRevShareRow(data, userId);
+  }
+
+  @Patch('product_lab_markup/rows')
+  @ApiOperation({ summary: 'Update product lab markup record' })
+  @ApiResponse({ status: 200, description: 'Record updated successfully' })
+  @ApiResponse({ status: 404, description: 'Record not found' })
+  async updateProductLabMarkup(
+    @Body() data: {
+      lab_id: number;
+      lab_product_id: string;
+      cost?: number;
+      standard_price?: number;
+      nf_price?: number;
+      commitment_eligible?: boolean;
+    },
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.tablesService.updateProductLabMarkupRow(data, userId);
+  }
+
   @Patch(':table/rows/:id')
   @ApiOperation({ summary: 'Update a row in the table' })
   @ApiParam({ name: 'table', description: 'Table name' })
@@ -129,5 +152,18 @@ export class TablesController {
     @CurrentUser('id') userId: string,
   ) {
     return this.tablesService.deleteTableRow(tableName, id, userRole, userId);
+  }
+
+  @Get(':table')
+  @ApiOperation({ summary: 'Get table configuration with columns and permissions' })
+  @ApiParam({ name: 'table', description: 'Table name' })
+  @ApiResponse({ status: 200, description: 'Table configuration', type: TableConfigDto })
+  @ApiResponse({ status: 403, description: 'Access denied' })
+  @ApiResponse({ status: 404, description: 'Table not found' })
+  async getTableConfig(
+    @Param('table') tableName: string,
+    @CurrentUser('role') userRole: string,
+  ) {
+    return this.tablesService.getTableConfig(tableName, userRole);
   }
 }

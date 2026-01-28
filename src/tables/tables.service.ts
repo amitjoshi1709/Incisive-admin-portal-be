@@ -142,6 +142,11 @@ export class TablesService {
     // Validate table access
     await this.validateTableAccess(tableName, userRole, 'read');
 
+    // Special handling for product_lab_rev_share table
+    if (tableName.toLowerCase() === 'product_lab_rev_share') {
+      return this.getProductLabRevShareRows(query);
+    }
+
     const { page = 1, limit = 10, search, sortBy, sortOrder = 'desc', filters } = query;
     const skip = (page - 1) * limit;
 
@@ -311,6 +316,11 @@ export class TablesService {
     const modelDelegate = this.getModelDelegate(tableName);
     const model = this.getModelDefinition(tableName);
 
+    // Special handling for product_lab_rev_share table
+    if (tableName.toLowerCase() === 'product_lab_rev_share') {
+      return this.createProductLabRevShareRows(data, userId);
+    }
+
     // Convert field types to match Prisma schema
     data = this.convertFieldTypes(model, data);
 
@@ -349,6 +359,17 @@ export class TablesService {
           `${fieldValues} for ${fieldNames} already exists`
         );
       }
+      // Handle check constraint violation (PostgreSQL code 23514)
+      if (error.message?.includes('check constraint')) {
+        const constraintMatch = error.message.match(/violates check constraint "([^"]+)"/);
+        const constraintName = constraintMatch ? constraintMatch[1] : 'unknown';
+        // Extract field name from constraint name (e.g., labs_partner_model_check -> partner_model)
+        const fieldMatch = constraintName.match(/^[^_]+_(.+)_check$/);
+        const fieldName = fieldMatch ? fieldMatch[1] : constraintName;
+        throw new BadRequestException(
+          `Invalid value for '${fieldName}'. Please check allowed values.`
+        );
+      }
       // Handle validation errors
       if (error.name === 'PrismaClientValidationError') {
         const message = error.message;
@@ -357,6 +378,274 @@ export class TablesService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Special create handler for product_lab_rev_share - creates records for all fee schedules
+   */
+  private async createProductLabRevShareRows(
+    data: Record<string, any>,
+    userId: string,
+  ) {
+    const { lab_id, lab_product_id } = data;
+
+    if (!lab_id || lab_product_id === undefined) {
+      throw new BadRequestException('lab_id and lab_product_id are required');
+    }
+
+    // Get all fee schedule names
+    const feeSchedules = await this.prisma.fee_schedules.findMany({
+      select: { schedule_name: true },
+    });
+
+    if (feeSchedules.length === 0) {
+      throw new BadRequestException('No fee schedules found');
+    }
+
+    // Create records for each fee schedule
+    const records = feeSchedules.map((fs) => ({
+      lab_id: BigInt(lab_id),
+      lab_product_id: String(lab_product_id),
+      fee_schedule_name: fs.schedule_name,
+    }));
+
+    const result = await this.prisma.product_lab_rev_share.createMany({
+      data: records,
+      skipDuplicates: true,
+    });
+
+    // Log the action
+    await this.auditService.log({
+      userId,
+      action: AuditAction.CREATE_RECORD,
+      resource: `${lab_id}-${lab_product_id}`,
+      details: { table: 'product_lab_rev_share', count: result.count },
+    });
+
+    return { message: 'Records created successfully', count: result.count };
+  }
+
+  /**
+   * Special get handler for product_lab_rev_share - cross join with fee_schedules
+   */
+  private async getProductLabRevShareRows(query: TableRowsQueryDto) {
+    const { page = 1, limit = 10, filters, search } = query;
+    const offset = (page - 1) * limit;
+
+    // Parse filters for lab_id
+    let labIdFilter: bigint | null = null;
+    if (filters) {
+      try {
+        const parsedFilters = JSON.parse(filters);
+        if (parsedFilters.lab_id) {
+          labIdFilter = BigInt(parsedFilters.lab_id);
+        }
+      } catch {
+        // Invalid JSON, ignore filters
+      }
+    }
+
+    // Search term for lab_product_id (string contains) or lab_id (exact match if numeric)
+    const searchTerm = search ? `%${search}%` : null;
+    const searchLabId = search && !isNaN(parseInt(search, 10)) ? BigInt(search) : null;
+
+    // Get total count (count of unique lab_id, lab_product_id, incisive_product_id combinations)
+    const countResult = await this.prisma.$queryRaw<{ count: bigint }[]>`
+      SELECT COUNT(*) as count FROM (
+        SELECT DISTINCT lab_id, lab_product_id, incisive_product_id
+        FROM product_lab_rev_share
+        WHERE (${labIdFilter}::BIGINT IS NULL OR lab_id = ${labIdFilter})
+          AND (
+            ${searchTerm}::TEXT IS NULL
+            OR lab_product_id ILIKE ${searchTerm}
+            OR (${searchLabId}::BIGINT IS NOT NULL AND lab_id = ${searchLabId})
+          )
+      ) AS total
+    `;
+    const total = Number(countResult[0].count);
+
+    // Get paginated data with fee_schedules aggregated as JSON
+    const result = await this.prisma.$queryRaw<
+      {
+        lab_id: bigint;
+        lab_product_id: string;
+        incisive_product_id: number;
+        fee_schedules: Record<string, { revenue_share: number | null; commitment_eligible: boolean | null }>;
+      }[]
+    >`
+      SELECT *
+      FROM (
+        SELECT
+          pl.lab_id,
+          pl.lab_product_id,
+          pl.incisive_product_id,
+          jsonb_object_agg(
+            fs.schedule_name,
+            jsonb_build_object(
+              'revenue_share', plrs.revenue_share,
+              'commitment_eligible', plrs.commitment_eligible
+            )
+            ORDER BY fs.schedule_name
+          ) AS fee_schedules
+        FROM (
+          SELECT DISTINCT lab_id, lab_product_id, incisive_product_id
+          FROM product_lab_rev_share
+          WHERE (${labIdFilter}::BIGINT IS NULL OR lab_id = ${labIdFilter})
+            AND (
+              ${searchTerm}::TEXT IS NULL
+              OR lab_product_id ILIKE ${searchTerm}
+              OR (${searchLabId}::BIGINT IS NOT NULL AND lab_id = ${searchLabId})
+            )
+        ) pl
+        CROSS JOIN fee_schedules fs
+        LEFT JOIN product_lab_rev_share plrs
+          ON plrs.lab_id = pl.lab_id
+         AND plrs.lab_product_id = pl.lab_product_id
+         AND plrs.fee_schedule_name = fs.schedule_name
+        GROUP BY
+          pl.lab_id,
+          pl.lab_product_id,
+          pl.incisive_product_id
+      ) grouped_products
+      ORDER BY lab_product_id
+      LIMIT ${limit} OFFSET ${offset}
+    `;
+
+    return {
+      data: result.map((row) => ({
+        lab_id: Number(row.lab_id),
+        lab_product_id: row.lab_product_id,
+        incisive_product_id: row.incisive_product_id,
+        fee_schedules: row.fee_schedules,
+      })),
+      meta: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+      },
+      filtersApplied: labIdFilter ? { lab_id: String(labIdFilter) } : {},
+      searchApplied: search || null,
+      sort: { column: 'lab_product_id', direction: 'asc' },
+    };
+  }
+
+  /**
+   * Update product_lab_markup row
+   */
+  async updateProductLabMarkupRow(
+    data: {
+      lab_id: number;
+      lab_product_id: string;
+      cost?: number;
+      standard_price?: number;
+      nf_price?: number;
+      commitment_eligible?: boolean;
+    },
+    userId: string,
+  ): Promise<{ message: string }> {
+    const { lab_id, lab_product_id, cost, standard_price, nf_price, commitment_eligible } = data;
+
+    // Build update data with proper type conversions
+    const updateData: Record<string, any> = {};
+    if (cost !== undefined) {
+      updateData.cost = cost === null ? null : parseFloat(String(cost));
+    }
+    if (standard_price !== undefined) {
+      updateData.standard_price = standard_price === null ? null : parseFloat(String(standard_price));
+    }
+    if (nf_price !== undefined) {
+      updateData.nf_price = nf_price === null ? null : parseFloat(String(nf_price));
+    }
+    if (commitment_eligible !== undefined) {
+      updateData.commitment_eligible = commitment_eligible === true || (commitment_eligible as any) === 'true';
+    }
+
+    const result = await this.prisma.product_lab_markup.updateMany({
+      where: {
+        lab_id: BigInt(lab_id),
+        lab_product_id: String(lab_product_id),
+      },
+      data: updateData,
+    });
+
+    if (result.count === 0) {
+      throw new NotFoundException('Record not found in product_lab_markup');
+    }
+
+    // Log the action
+    await this.auditService.log({
+      userId,
+      action: AuditAction.UPDATE_RECORD,
+      resource: `${lab_id}-${lab_product_id}`,
+      details: { table: 'product_lab_markup', ...updateData },
+    });
+
+    return { message: 'Record updated successfully' };
+  }
+
+  /**
+   * Update product_lab_rev_share row
+   */
+  async updateProductLabRevShareRow(
+    data: {
+      lab_id: number;
+      lab_product_id: string;
+      incisive_product_id?: number | null;
+      schedule_name: string;
+      revenue_share?: number;
+    },
+    userId: string,
+  ): Promise<{ message: string }> {
+    const { lab_id, lab_product_id, schedule_name, revenue_share, incisive_product_id } = data;
+
+    // Validate required fields
+    if (!lab_id) {
+      throw new BadRequestException('lab_id is required');
+    }
+    if (!lab_product_id || lab_product_id.trim() === '') {
+      throw new BadRequestException('lab_product_id is required');
+    }
+    if (!schedule_name || schedule_name.trim() === '') {
+      throw new BadRequestException('schedule_name is required');
+    }
+
+    // Build update/create data
+    const updateData: Record<string, any> = {};
+    if (revenue_share !== undefined) {
+      updateData.revenue_share = revenue_share === null ? null : parseFloat(String(revenue_share));
+    }
+    if (incisive_product_id !== undefined) {
+      updateData.incisive_product_id = incisive_product_id === null ? null : parseInt(String(incisive_product_id), 10);
+    }
+
+    // Upsert: update if exists, create if not
+    await this.prisma.product_lab_rev_share.upsert({
+      where: {
+        lab_id_lab_product_id_fee_schedule_name: {
+          lab_id: BigInt(lab_id),
+          lab_product_id: String(lab_product_id),
+          fee_schedule_name: schedule_name,
+        },
+      },
+      update: updateData,
+      create: {
+        lab_id: BigInt(lab_id),
+        lab_product_id: String(lab_product_id),
+        fee_schedule_name: schedule_name,
+        ...updateData,
+      },
+    });
+
+    // Log the action
+    await this.auditService.log({
+      userId,
+      action: AuditAction.UPDATE_RECORD,
+      resource: `${lab_id}-${lab_product_id}-${schedule_name}`,
+      details: { table: 'product_lab_rev_share', ...updateData },
+    });
+
+    return { message: 'Record saved successfully' };
   }
 
   /**
@@ -419,6 +708,17 @@ export class TablesService {
         const fieldValues = fields.map((f: string) => data[f]).join(', ');
         throw new ConflictException(
           `${fieldValues} for ${fieldNames} already exists`
+        );
+      }
+      // Handle check constraint violation (PostgreSQL code 23514)
+      if (error.message?.includes('check constraint')) {
+        const constraintMatch = error.message.match(/violates check constraint "([^"]+)"/);
+        const constraintName = constraintMatch ? constraintMatch[1] : 'unknown';
+        // Extract field name from constraint name (e.g., labs_partner_model_check -> partner_model)
+        const fieldMatch = constraintName.match(/^[^_]+_(.+)_check$/);
+        const fieldName = fieldMatch ? fieldMatch[1] : constraintName;
+        throw new BadRequestException(
+          `Invalid value for '${fieldName}'. Please check allowed values.`
         );
       }
       // Handle validation errors

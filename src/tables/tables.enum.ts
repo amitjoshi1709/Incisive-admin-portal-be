@@ -13,6 +13,8 @@ export enum AllowedTable {
   DENTAL_GROUPS='dental_groups',
   DENTAL_PRACTICES='dental_practices',
   FEE_SCHEDULE='fee_schedules',
+  PRODUCT_LAB_MARKUP = 'product_lab_markup',
+  PRODUCT_LAB_REV_SHARE = 'product_lab_rev_share',
 
   // Add more tables here as needed:
   // PRODUCTS = 'products',
