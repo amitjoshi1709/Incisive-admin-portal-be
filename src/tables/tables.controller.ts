@@ -81,7 +81,7 @@ export class TablesController {
     @CurrentUser('role') userRole: string,
     @CurrentUser('id') userId: string,
   ) {
-    return this.tablesService.createTableRow(tableName, data, userRole, userId);
+    return await this.tablesService.createTableRow(tableName, data, userRole, userId);
   }
 
   @Patch('product_lab_rev_share/rows')

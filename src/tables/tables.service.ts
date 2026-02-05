@@ -18,7 +18,7 @@ import { AllowedTable, ADMIN_ONLY_TABLES, getAllowedTableNames } from './tables.
 
 @Injectable()
 export class TablesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(private prisma: PrismaService) { }
 
   /**
    * Tables to exclude from the API entirely (e.g., tables with @@ignore)
@@ -320,7 +320,7 @@ export class TablesService {
 
     // Special handling for product_lab_rev_share table
     if (tableName.toLowerCase() === 'product_lab_rev_share') {
-      return this.createProductLabRevShareRows(data, userId);
+      return await this.createProductLabRevShareRows(data, userId);
     }
 
     // Convert field types to match Prisma schema
@@ -440,18 +440,24 @@ export class TablesService {
       fee_schedule_name: fs.schedule_name,
     }));
 
+    // Check if records already exist
+    const existing = await this.prisma.product_lab_rev_share.findFirst({
+      where: {
+        lab_id: BigInt(lab_id),
+        lab_product_id: String(lab_product_id),
+      },
+    });
+
+    if (existing) {
+      throw new ConflictException(
+        `Records for lab_id ${lab_id} and lab_product_id ${lab_product_id} already exist`
+      );
+    }
+
     const result = await this.prisma.product_lab_rev_share.createMany({
       data: records,
       skipDuplicates: true,
     });
-
-    // Log the action
-    // await this.auditService.log({
-    //   userId,
-    //   action: AuditAction.CREATE_RECORD,
-    //   resource: `${lab_id}-${lab_product_id}`,
-    //   details: { table: 'product_lab_rev_share', count: result.count },
-    // });
 
     return { message: 'Records created successfully', count: result.count };
   }
@@ -1444,6 +1450,7 @@ export class TablesService {
 
   /**
    * Convert data field values to correct types based on Prisma model definition
+   * Empty strings, undefined values are converted to null
    */
   private convertFieldTypes(model: any, data: Record<string, any>): Record<string, any> {
     const converted: Record<string, any> = {};
@@ -1451,25 +1458,41 @@ export class TablesService {
     for (const [key, value] of Object.entries(data)) {
       const field = model.fields.find((f: any) => f.name === key);
 
-      if (!field || value === null || value === undefined) {
+      // If field not found in model, keep as is
+      if (!field) {
         converted[key] = value;
+        continue;
+      }
+
+      // Convert null, undefined, or empty string to null
+      if (value === null || value === undefined || value === '') {
+        converted[key] = null;
         continue;
       }
 
       // Convert based on Prisma type
       switch (field.type) {
         case 'Int':
-          converted[key] = value === '' ? null : parseInt(value, 10);
+          converted[key] = parseInt(value, 10);
+          if (isNaN(converted[key])) converted[key] = null;
           break;
         case 'BigInt':
-          converted[key] = value === '' ? null : BigInt(value);
+          try {
+            converted[key] = BigInt(value);
+          } catch {
+            converted[key] = null;
+          }
           break;
         case 'Float':
         case 'Decimal':
-          converted[key] = value === '' ? null : parseFloat(value);
+          converted[key] = parseFloat(value);
+          if (isNaN(converted[key])) converted[key] = null;
           break;
         case 'Boolean':
           converted[key] = value === 'true' || value === true;
+          break;
+        case 'String':
+          converted[key] = String(value).trim() || null;
           break;
         default:
           converted[key] = value;

@@ -90,7 +90,6 @@ export class AuthService {
 
     // Generate tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role || 'USER');
-    console.log("🚀 ~ AuthService ~ login ~ tokens:", tokens)
 
     // Save refresh token
     await this.updateRefreshToken(user.id, tokens.refreshToken);
